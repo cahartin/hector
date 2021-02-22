@@ -1,0 +1,224 @@
+---
+title: "Scenario Analysis for Temperature Binning Technical Documentation"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  fig_width: 6
+  word_document: default
+fig_height: 4
+---
+Author: CH 
+
+Date: 2/18/2021
+
+This notebook will run GCAM reference scenario with 5 different climate sensitivities (ECS) under 5 different CO2 emission (FFI) reductions (20%, 30%, 50%, 70%).
+
+The GCAM reference scenario is from Fawcett et al., 2015.  CO2 emissions reductions are linearly extrapolated between 2025 and 2100. Reductions begin the next time step after 2025 (i.e., 2026). 
+
+List of emissions included:  
+ffi_emissions	luc_emissions	
+CH4_emissions	N2O_emissions	
+SO2_emissions	CF4_emissions	
+C2F6_emissions HFC125_emissions  
+HFC134a_emissions HFC143a_emissions  
+HFC227ea_emissions HFC245fa_emissions  
+SF6_emissions NOX_emissions  
+NMVOC_emissions CO_emissions  
+BC_emissions OC_emissions  
+
+All other emissions in Hector where turned off. *Note, that this may bias the runs cooler without the additional CFCs and HFCs. 
+
+
+---
+
+```{r, echo = FALSE, message=FALSE, include=FALSE}
+library(devtools)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(knitr)
+```
+
+```{r, include=FALSE}
+#Functions needed to loop through ECS values
+run_with_param <- function(core, parameter, value) {
+  old_value <- fetchvars(core, NA, parameter)
+  unit <- as.character(old_value[["units"]])
+  setvar(core, NA, parameter, value, unit)
+  reset(core)
+  run(core)
+  result <- fetchvars(core, 1850:2300)
+  result[["parameter_value"]] <- paste0("ECS_", value)
+  result
+}
+
+#' Run Hector with a range of parameter values
+run_with_param_range <- function(core, parameter, values) {
+  mapped <- Map(function(x) run_with_param(core, parameter, x), values)
+  Reduce(rbind, mapped)
+}
+```
+Run default Hector core with Reference Scenario
+```{r, echo = FALSE, message=FALSE, include=FALSE}
+#devtools::install_github("jgcri/hector", force = TRUE) # this installs the hector package as is. 
+
+# this installs hector as a package from my local repo. So i can change scenarios etc. 
+# branch temp_binning
+
+devtools::load_all("C:/Users/chartin/OneDrive - Environmental Protection Agency (EPA)/Documents/GitHub/hector/") 
+
+library(hector)
+
+ini_file <- system.file("input/hector_gcam_ref.ini", package="hector")
+
+core<- newcore(ini_file)
+
+core
+
+run(core)
+
+
+cs_vary <- run_with_param_range(core, ECS(), c(1.5, 2.0,3.0, 4.5, 6.0))%>% 
+  filter(variable == "Tgav")
+  
+  cs_vary$scenario <- gsub("unnamed hector core","Ref", cs_vary$scenario)
+cs_vary_ref <- cs_vary
+
+write.csv(cs_vary, "Hector_GCAM_reference.csv", row.names = FALSE)
+```
+
+Reference Scenario output - [CO2] (ppmv), Forcing from CO2 (W m-2), Total Forcing (W m-2), Global Mean Temperature (dC)
+
+```{r, echo = FALSE}
+cs_vary <- run_with_param_range(core, ECS(), c(1.5, 2.0,3.0, 4.5, 6.0))
+ ggplot(cs_vary) + aes(x = year, y = value, color = parameter_value) + 
+  geom_line() + 
+  facet_wrap(~variable, scales = "free_y") 
+```
+
+Run Hector with a decrease in FFI_emissions of 20%, 30%, 50%, 70%
+
+```{r, include=FALSE}
+ini_file <- system.file("input/hector_gcam_20.ini", package="hector")
+
+core<- newcore(ini_file)
+
+core
+
+run(core)
+
+cs_vary <- run_with_param_range(core, ECS(), c(1.5, 2.0,3.0, 4.5, 6.0))%>% 
+  filter(variable == "Tgav")
+  
+  cs_vary$scenario <- gsub("unnamed hector core","Ref_20", cs_vary$scenario)
+cs_vary_20 <- cs_vary
+write.csv(cs_vary, "Hector_GCAM_ref_20.csv", row.names = FALSE)
+```
+
+```{r, echo = FALSE, include=FALSE}
+ini_file <- system.file("input/hector_gcam_30.ini", package="hector")
+
+core<- newcore(ini_file)
+
+core
+
+run(core)
+
+cs_vary <- run_with_param_range(core, ECS(), c(1.5, 2.0,3.0, 4.5, 6.0))%>% 
+  filter(variable == "Tgav")
+  
+  cs_vary$scenario <- gsub("unnamed hector core","Ref_30", cs_vary$scenario)
+cs_vary_30 <- cs_vary
+
+write.csv(cs_vary, "Hector_GCAM_ref_30.csv", row.names = FALSE)
+```
+
+```{r, echo = FALSE, include=FALSE}
+ini_file <- system.file("input/hector_gcam_50.ini", package="hector")
+
+core<- newcore(ini_file)
+
+core
+
+run(core)
+
+cs_vary <- run_with_param_range(core, ECS(), c(1.5, 2.0,3.0, 4.5, 6.0))%>% 
+  filter(variable == "Tgav")
+  
+  cs_vary$scenario <- gsub("unnamed hector core","Ref_50", cs_vary$scenario)
+
+  cs_vary_50 <- cs_vary
+
+write.csv(cs_vary, "Hector_GCAM_ref_50.csv", row.names = FALSE)
+```
+
+```{r, echo = FALSE,include=FALSE}
+ini_file <- system.file("input/hector_gcam_70.ini", package="hector")
+
+core<- newcore(ini_file)
+
+core
+
+run(core)
+
+cs_vary <- run_with_param_range(core, ECS(), c(1.5, 2.0,3.0, 4.5, 6.0)) %>% 
+  filter(variable == "Tgav")
+  
+  cs_vary$scenario <- gsub("unnamed hector core","Ref_70", cs_vary$scenario)
+
+cs_vary_70 <- cs_vary
+
+write.csv(cs_vary, "Hector_GCAM_ref_70.csv", row.names = FALSE)
+```
+
+Global Mean Temperature from 1850-2100 with all ECS and scenario combinations
+
+```{r, echo = FALSE}
+df <- rbind(cs_vary_ref, cs_vary_20, cs_vary_30, cs_vary_50, cs_vary_70)
+
+```
+
+```{r, echo = FALSE}
+ggplot(df) + aes(x = year, y = value, group = parameter_value, color = parameter_value) + 
+  geom_line() + 
+   facet_wrap(~scenario, scales = "free_y")
+```
+
+Table of scenario CO2 emissions
+
+```{r, echo = FALSE, warning = FALSE}
+
+year <- c(2025, 2100)
+ref <- c(12.13, 25.79)
+p20 <- c(12.13,20.63)
+p30 <- c(12.13,18.05)
+p50 <- c(12.13,12.89)
+p70 <- c(12.13, 7.73)
+t <- rbind(year, ref, p20, p30, p50, p70)
+
+kable(t, caption="Scenario Emissions")
+
+```
+I was initially surprised by how even with a 70% decrease, temperatures were still above 2 degrees. So I compared the CO2 emissions to the RCPs. not surprisingly, in order to get to 2 degrees emissions typically need to go negative.  And even in our most aggressive case of 70% emissions in 2100 are still close to 8 GtC. 
+
+```{r, echo = FALSE, warning = FALSE}
+year <- c(2025, 2100)
+rcp26 <- c(8.22,-0.93)
+rcp45 <- c(10.41, 4.2)
+rcp60 <- c(9.4, 13.13)
+rcp85 <- c(12.6, 28.6)
+t <- rbind(year, rcp26, rcp45, rcp60, rcp85)
+
+kable(t, caption="RCP Emissions")
+```
+
+NOTES:
+I had a hard time finding a GCAM reference with emissions needed to run Hector. I contacted PNNL to ask but what they sent over were the SSPs.  They mentioned they could run a quick reference scenario from the latest release and send it over.  If we are unhappy with this reference we can always ask them, but I'm not sure of their timeline. 
+
+To do -  
+
+1. before passing to IEc need to calculate temperature change from baseline. Need to double check the correct baseline. 
+
+2. Need to document the version of GCAM and Hector 
+

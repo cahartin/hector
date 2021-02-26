@@ -1,0 +1,243 @@
+---
+title: "Scenario Analysis for Temperature Binning Technical Documentation"
+output:
+  html_document:
+    toc: true
+    toc float: true
+    number_sections: false
+  fig_width: 6
+  fig_height: 4
+---
+author: CH  
+date: 2/23/2021
+  
+# Notes
+
+This notebook will run GCAM reference scenario with 5 different climate sensitivities (ECS) (1.5, 2.0, 3.0, 4.5, 6.0) under 5 different CO2 emission (FFI) reductions (20%, 30%, 50%, 70%, 90%). Total of 6 scenarios (ref + 5) and 5 ECS = 30 scenarios.
+
+The GCAM reference scenario is from [GCAMv5.3](https://github.com/JGCRI/gcam-core/releases/tag/gcam-v5.3).  CO2 emissions reductions are linearly extrapolated between 2025 and 2100. Reductions begin the next time step after 2025 (i.e., 2026). 
+
+Emissions of all historical gases/aerosols included in Hector from the [GCAM repository](https://github.com/jgcri/gcam-core/input/climate/gcam_emissions.csv)
+
+GCAM reference emissions file (2010-2100) from Pralit Patel (PNNL). Email 2/23/2021
+gcam-v5.3-climate-log.csv
+
+Gases/aerosols not include in the future emissions file are set to zero in 2010. They are used to calculate historical temperature change but not future (i.e. CFCs).
+
+```{r, echo = FALSE, message=FALSE, include=FALSE}
+library(devtools)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(knitr)
+```
+
+# EIA versus GCAM 
+Compare CO2 emissions from EIA with GCAM reference 
+```{r, include=FALSE}
+#Units are in MMmt need to convert to PGC
+EIA_emis <- read.csv("C:/Users/chartin/OneDrive - Environmental Protection Agency (EPA)/Temp Binning/World_carbon_dioxide_emissions_by_region.csv", skip = 8, sep = ",") %>%  
+  filter(OECD.Americas == "Total World") %>% 
+  gather() %>% 
+  slice(5:45)
+
+EIA_emis$value <- as.numeric(as.character(EIA_emis$value))
+
+year <- c(2010:2050)
+year <- t(t(year))
+
+EIA_emis <- cbind(EIA_emis,year) %>% 
+  select(-key) %>% 
+  mutate(value = ((value * 0.001) *(12/44))) %>%   # Convert from MMmtCO2 to GtC/year
+  rename("CO2_emissions" = "value") %>% 
+  mutate(scenario = "EIA")
+
+# compare GCAM emissions with EIA_emissions
+
+gcam_emis <- read.csv("C:/Users/chartin/OneDrive - Environmental Protection Agency (EPA)/Documents/GitHub/hector/inst/input/emissions/gcam_v5.3_emissions.csv") %>% 
+  select(Date, ffi_emissions) %>% 
+  filter(Date < 2051) %>% 
+  rename("year"= "Date") %>% 
+  rename("CO2_emissions" = "ffi_emissions") %>% 
+  mutate(scenario = "gcam")
+
+emissions <- full_join(EIA_emis, gcam_emis)
+```
+
+```{r, echo = FALSE}
+ggplot(emissions) + 
+  aes(x = year, y = CO2_emissions, color = scenario) + 
+  geom_line() +
+  ggtitle("EIA projections versus GCAM reference (CO2 emissions)") +
+  ylab("GtC")
+```
+
+```{r, echo = FALSE, message=FALSE, include=FALSE}
+devtools::load_all("C:/Users/chartin/OneDrive - Environmental Protection Agency (EPA)/Documents/GitHub/hector/") 
+
+library(hector)
+
+ini_file <- system.file("input/hector_gcam_ref.ini", package="hector")
+
+core<- newcore(ini_file)
+
+core
+
+run(core)
+
+default_results <- fetchvars(core, 1850:2100)
+
+ggplot(default_results) + aes(x = year, y = value, color = scenario) + 
+  geom_line() + 
+  facet_wrap(~variable, scales = "free_y")
+
+```
+
+```{r, include=FALSE}
+#Functions needed to loop through ECS values
+run_with_param <- function(core, parameter, value) {
+  old_value <- fetchvars(core, NA, parameter)
+  unit <- as.character(old_value[["units"]])
+  setvar(core, NA, parameter, value, unit)
+  reset(core)
+  run(core)
+  result <- fetchvars(core, 1850:2300)
+  result[["parameter_value"]] <- paste0("ECS_", value)
+  result
+}
+
+#' Run Hector with a range of parameter values
+run_with_param_range <- function(core, parameter, values) {
+  mapped <- Map(function(x) run_with_param(core, parameter, x), values)
+  Reduce(rbind, mapped)
+}
+```
+
+# GCAM reference 
+Run default Hector core with Reference Scenario
+
+```{r, echo = FALSE, message=FALSE, include=FALSE}
+cs_vary <- run_with_param_range(core, ECS(), c(1.5, 2.0,3.0, 4.5, 6.0))
+  
+cs_vary$scenario <- gsub("unnamed hector core","Ref", cs_vary$scenario)
+cs_vary_ref <- cs_vary %>% 
+  filter(variable == "Tgav")
+
+```
+
+Reference Scenario output - [CO2] (ppmv), Forcing from CO2 (W m-2), Total Forcing (W m-2), Global Mean Temperature (dC)
+
+```{r, echo = FALSE}
+cs_vary <- run_with_param_range(core, ECS(), c(1.5, 2.0,3.0, 4.5, 6.0))
+ ggplot(cs_vary) + aes(x = year, y = value, color = parameter_value) + 
+  geom_line() + 
+  facet_wrap(~variable, scales = "free_y") 
+```
+
+# Percent decrease scenarios
+
+Run Hector with a decrease in FFI_emissions of 20%, 30%, 50%, 70%, 90%
+
+```{r, include=FALSE}
+ini_file <- system.file("input/hector_gcam_ref_20.ini", package="hector")
+core<- newcore(ini_file)
+core
+run(core)
+
+cs_vary <- run_with_param_range(core, ECS(), c(1.5, 2.0,3.0, 4.5, 6.0))%>% 
+  filter(variable == "Tgav")
+  
+  cs_vary$scenario <- gsub("unnamed hector core","Ref_20", cs_vary$scenario)
+cs_vary_20 <- cs_vary
+
+```
+
+```{r, echo = FALSE, include=FALSE}
+ini_file <- system.file("input/hector_gcam_ref_30.ini", package="hector")
+core<- newcore(ini_file)
+core
+run(core)
+
+cs_vary <- run_with_param_range(core, ECS(), c(1.5, 2.0,3.0, 4.5, 6.0))%>% 
+  filter(variable == "Tgav")
+  
+  cs_vary$scenario <- gsub("unnamed hector core","Ref_30", cs_vary$scenario)
+cs_vary_30 <- cs_vary
+
+
+```
+
+```{r, echo = FALSE, include=FALSE}
+ini_file <- system.file("input/hector_gcam_ref_50.ini", package="hector")
+core<- newcore(ini_file)
+core
+run(core)
+
+cs_vary <- run_with_param_range(core, ECS(), c(1.5, 2.0,3.0, 4.5, 6.0))%>% 
+  filter(variable == "Tgav")
+  
+  cs_vary$scenario <- gsub("unnamed hector core","Ref_50", cs_vary$scenario)
+
+  cs_vary_50 <- cs_vary
+
+
+```
+
+```{r, echo = FALSE,include=FALSE}
+ini_file <- system.file("input/hector_gcam_ref_70.ini", package="hector")
+core<- newcore(ini_file)
+core
+run(core)
+
+cs_vary <- run_with_param_range(core, ECS(), c(1.5, 2.0,3.0, 4.5, 6.0)) %>% 
+  filter(variable == "Tgav")
+  
+  cs_vary$scenario <- gsub("unnamed hector core","Ref_70", cs_vary$scenario)
+
+cs_vary_70 <- cs_vary
+
+```
+
+```{r, echo = FALSE,include=FALSE}
+ini_file <- system.file("input/hector_gcam_ref_90.ini", package="hector")
+core<- newcore(ini_file)
+core
+run(core)
+
+cs_vary <- run_with_param_range(core, ECS(), c(1.5, 2.0,3.0, 4.5, 6.0)) %>% 
+  filter(variable == "Tgav")
+  
+  cs_vary$scenario <- gsub("unnamed hector core","Ref_90", cs_vary$scenario)
+
+cs_vary_90 <- cs_vary
+
+```
+
+Global Mean Temperature from 1850-2100 with all ECS and scenario combinations
+
+```{r, echo = FALSE}
+df <- rbind(cs_vary_ref, cs_vary_20, cs_vary_30, cs_vary_50, cs_vary_70, cs_vary_90)
+
+write.csv(cs_vary, "output/Hector_GCAMv5.3.csv", row.names = FALSE)
+```
+
+```{r, echo = FALSE}
+ggplot(df) + aes(x = year, y = value, group = parameter_value, color = parameter_value) + 
+  geom_line() + 
+   facet_wrap(~scenario)
+```
+
+# Table of CO2 emissions
+
+```{r, echo = FALSE, warning = FALSE}
+
+year <- c(2025, 2100)
+ref <- c(11.72, 18.42)
+p20 <- c(11.72,14.73)
+p30 <- c(11.72,12.89)
+p50 <- c(11.72,9.21)
+p70 <- c(11.72,5.52)
+p90 <- c(11.72,1.84)
+t <- cbind(year, ref, p20, p30, p50, p70, p90)
+
+kable(t, caption="Scenario Emissions")
